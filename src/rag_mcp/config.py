@@ -35,10 +35,14 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8080
     default_namespace: str = "default"
-    transport: str = "streamable-http"  # "stdio" or "streamable-http" or "sse"
+    transport: str = "http"  # "stdio", "streamable-http", "sse", or "http"
 
     # --- Logging ---
     log_level: str = "INFO"
+
+    # --- Observability ---
+    metrics_enabled: bool = True
+    metrics_path: str = "/metrics"
 
     # --- Security ---
     allowed_upload_extensions: list[str] = [

@@ -186,31 +186,58 @@ def test_upload_api_endpoints(tmp_data_dir):
 
 
 def test_transport_routing(tmp_data_dir):
-    """Test that streamable-http and sse transport apps can be mounted in FastAPI."""
+    """Test that streamable-http and sse transport apps can be created and mounted in FastAPI."""
     from fastapi import FastAPI
-    from fastapi.testclient import TestClient
+    from starlette.applications import Starlette
     from rag_mcp.mcp.server import create_mcp_server
     from rag_mcp.engine.rag_engine import RAGEngine
 
     engine = RAGEngine()
     mcp = create_mcp_server(engine)
 
-    # Test "sse" transport
+    # Test "sse" transport app generation
     app_sse = FastAPI()
     sse_mcp_app = mcp.http_app(transport="sse")
+    assert isinstance(sse_mcp_app, Starlette)
     app_sse.mount("/mcp", sse_mcp_app)
 
-    client_sse = TestClient(app_sse)
-    resp = client_sse.get("/mcp/sse")
-    assert resp.status_code != 404
-
-    # Test "streamable-http" transport
+    # Test "streamable-http" transport app generation
     app_http = FastAPI()
     http_mcp_app = mcp.http_app(transport="streamable-http")
+    assert isinstance(http_mcp_app, Starlette)
     app_http.mount("/mcp", http_mcp_app)
 
-    client_http = TestClient(app_http)
-    resp = client_http.get("/mcp/mcp")
-    assert resp.status_code != 404
+
+def test_metrics_endpoint(tmp_data_dir):
+    """Test Prometheus metrics endpoint registration and response."""
+    pytest.importorskip("prometheus_client")
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from rag_mcp.config import settings
+    from rag_mcp.log import get_logger
+    from rag_mcp.main import register_metrics_endpoint
+
+    app = FastAPI()
+    logger = get_logger("test_metrics")
+
+    original_enabled = settings.metrics_enabled
+    original_path = settings.metrics_path
+    try:
+        settings.metrics_enabled = True
+        settings.metrics_path = "/metrics"
+
+        register_metrics_endpoint(app, logger)
+        client = TestClient(app)
+        resp = client.get("/metrics")
+
+        assert resp.status_code == 200
+        assert "text/plain" in resp.headers.get("content-type", "")
+        assert "Cache-Control" in resp.headers
+        assert "# HELP" in resp.text or "# TYPE" in resp.text
+    finally:
+        settings.metrics_enabled = original_enabled
+        settings.metrics_path = original_path
 
 

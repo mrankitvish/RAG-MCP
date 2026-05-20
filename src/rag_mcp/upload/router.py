@@ -36,8 +36,6 @@ def get_engine() -> RAGEngine:
 
 # Serve static frontend folder if it exists
 static_dir = Path(__file__).parent.parent.parent.parent / "upload-ui"
-if static_dir.exists():
-    router.mount("/static", StaticFiles(directory=str(static_dir)), name="upload_static")
 
 
 @router.get("/{session_id}", response_class=HTMLResponse)
