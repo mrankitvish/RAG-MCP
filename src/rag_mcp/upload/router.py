@@ -34,8 +34,13 @@ def get_engine() -> RAGEngine:
     return _engine
 
 
-# Serve static frontend folder if it exists
-static_dir = Path(__file__).parent.parent.parent.parent / "upload-ui"
+# Resolve upload-ui folder across source and installed-package layouts.
+_static_candidates = [
+    Path(__file__).resolve().parent.parent.parent.parent / "upload-ui",  # source checkout
+    Path.cwd() / "upload-ui",  # runtime CWD (e.g., /app)
+    Path("/app/upload-ui"),  # docker image path
+]
+static_dir = next((p for p in _static_candidates if p.exists()), _static_candidates[0])
 
 
 @router.get("/{session_id}", response_class=HTMLResponse)
