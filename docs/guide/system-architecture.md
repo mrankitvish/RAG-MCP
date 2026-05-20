@@ -22,7 +22,7 @@ flowchart LR
     T --> E[RAGEngine]
     E --> C[ChromaDB VectorStore]
     E --> S[SQLite MetadataStore]
-    B --> M[/metrics]
+    B --> M["metrics endpoint (/metrics)"]
 ```
 
 ## Component Diagram
@@ -30,7 +30,7 @@ flowchart LR
 ```mermaid
 flowchart TD
     MAIN[main.py] --> METRIC_MW[HTTP metrics middleware]
-    MAIN --> METRIC_EP[/metrics endpoint]
+    MAIN --> METRIC_EP["metrics endpoint (/metrics)"]
     MAIN --> UPLOAD[upload router]
     MAIN --> MCP_APPS[FastMCP mounted apps]
 
@@ -54,4 +54,3 @@ flowchart TD
 
 - Ingestion: parser -> [`RAGEngine.ingest()`](../../src/rag_mcp/engine/rag_engine.py:27) -> chunk -> embed -> vector upsert -> metadata/chunk save
 - Retrieval: query embed -> vector query -> similarity mapping -> tool response
-
