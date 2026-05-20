@@ -5,6 +5,12 @@ __pycache__/
 dist/
 build/
 data/
+dummy_data/
 *.db
 .pytest_cache/
 .ruff_cache/
+
+# Local environment secrets
+.env
+.env.*
+!.env.example

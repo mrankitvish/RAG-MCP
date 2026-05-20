@@ -8,14 +8,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
 RUN pip install --no-cache-dir .
 
 # Pre-download the default embedding model
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
-# Copy source and static UI files
-COPY src/ ./src/
+# Copy static UI files
 COPY upload-ui/ ./upload-ui/
 
 # Data persistence volume

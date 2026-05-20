@@ -1,6 +1,10 @@
-"""YouTube ingestion driver — extract transcript and ingest."""
+"""YouTube ingestion driver — extract transcript and ingest.
+
+Supports both legacy and newer youtube-transcript-api calling styles.
+"""
 
 import re
+from typing import Any
 
 from youtube_transcript_api import YouTubeTranscriptApi
 
@@ -9,6 +13,8 @@ from rag_mcp.log import get_logger
 from rag_mcp.models import SourceType
 
 logger = get_logger(__name__)
+
+_PREFERRED_TRANSCRIPT_LANGUAGES = ["en", "hi"]
 
 _YT_PATTERNS = [
     r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})",
@@ -41,9 +47,35 @@ def ingest_from_youtube(
             "error_code": "PARSE_ERROR",
         }
 
-    # Fetch transcript
+    # Fetch transcript (support multiple youtube-transcript-api versions)
     try:
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        transcript_list = None
+
+        # Newer API style: instance + fetch()
+        instance_fetch_error = None
+        try:
+            api = YouTubeTranscriptApi()
+            if hasattr(api, "fetch"):
+                transcript_list = api.fetch(
+                    video_id,
+                    languages=_PREFERRED_TRANSCRIPT_LANGUAGES,
+                )
+        except Exception as e:
+            instance_fetch_error = e
+
+        # Legacy API fallback: static get_transcript()
+        if transcript_list is None:
+            if hasattr(YouTubeTranscriptApi, "get_transcript"):
+                transcript_list = YouTubeTranscriptApi.get_transcript(
+                    video_id,
+                    languages=_PREFERRED_TRANSCRIPT_LANGUAGES,
+                )
+            elif instance_fetch_error is not None:
+                raise instance_fetch_error
+            else:
+                raise RuntimeError(
+                    "youtube-transcript-api does not expose a supported transcript method"
+                )
     except Exception as e:
         logger.error("YouTube transcript fetch failed", url=url, error=str(e))
         return {
@@ -55,8 +87,18 @@ def ingest_from_youtube(
         return {"error": "Empty transcript", "error_code": "NO_TRANSCRIPT"}
 
     # Normalize transcript — join segments into flowing text
-    text = " ".join(entry["text"] for entry in transcript_list)
+    def _segment_text(entry: Any) -> str:
+        if isinstance(entry, dict):
+            return str(entry.get("text", ""))
+        # Object-like transcript snippets in newer library versions
+        value = getattr(entry, "text", "")
+        return str(value)
+
+    text = " ".join(_segment_text(entry) for entry in transcript_list)
     text = re.sub(r"\s+", " ", text).strip()
+
+    if not text:
+        return {"error": "Empty transcript", "error_code": "NO_TRANSCRIPT"}
 
     title = f"YouTube: {video_id}"
 
