@@ -1,0 +1,216 @@
+"""Smoke tests — verify core imports and basic engine flow."""
+
+import tempfile
+import os
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def tmp_data_dir(tmp_path):
+    """Use a temporary directory for all data during tests."""
+    os.environ["RAG_MCP_CHROMA_PATH"] = str(tmp_path / "chroma")
+    os.environ["RAG_MCP_METADATA_DB_PATH"] = str(tmp_path / "metadata.db")
+    yield tmp_path
+
+
+def test_package_imports():
+    """Verify the package can be imported."""
+    import rag_mcp
+    assert rag_mcp.__version__ == "0.1.0"
+
+
+def test_config_loads():
+    """Verify settings load from environment."""
+    from rag_mcp.config import Settings
+    s = Settings()
+    assert s.chunk_size == 512
+    assert s.chunk_overlap == 50
+
+
+def test_models_create():
+    """Verify core models can be instantiated."""
+    from rag_mcp.models import Document, Chunk, SearchResult, SourceType
+    doc = Document(source_type=SourceType.TEXT)
+    assert doc.status.value == "processing"
+    assert doc.id  # auto-generated
+
+
+def test_chunker():
+    """Test basic text chunking."""
+    from rag_mcp.engine.chunker import Chunker
+    chunker = Chunker(chunk_size=50, chunk_overlap=10)
+    text = "Hello world. " * 20
+    chunks = chunker.chunk(text, document_id="test-doc")
+    assert len(chunks) > 1
+    assert all(c.document_id == "test-doc" for c in chunks)
+    assert all(c.text for c in chunks)
+
+
+def test_metadata_store(tmp_data_dir):
+    """Test metadata store CRUD operations."""
+    from rag_mcp.engine.metadata_store import MetadataStore
+    from rag_mcp.models import Document, DocumentStatus, SourceType
+
+    store = MetadataStore()
+
+    doc = Document(
+        namespace="test",
+        source_type=SourceType.TEXT,
+        title="Test Doc",
+    )
+    store.save_document(doc)
+
+    retrieved = store.get_document(doc.id)
+    assert retrieved is not None
+    assert retrieved.title == "Test Doc"
+
+    store.update_document_status(doc.id, DocumentStatus.INDEXED, chunk_count=5)
+    updated = store.get_document(doc.id)
+    assert updated.status == DocumentStatus.INDEXED
+    assert updated.chunk_count == 5
+
+    docs = store.list_documents(namespace="test")
+    assert len(docs) == 1
+
+    deleted = store.delete_document(doc.id)
+    assert deleted is True
+    assert store.get_document(doc.id) is None
+
+
+def test_ssrf_validation():
+    """Test SSRF protection blocks private IPs."""
+    from rag_mcp.security.ssrf import validate_url, SSRFError
+
+    # Should pass for public URLs
+    validate_url("https://example.com")
+
+    # Should block private IPs
+    with pytest.raises(SSRFError):
+        validate_url("http://192.168.1.1/secret")
+
+    with pytest.raises(SSRFError):
+        validate_url("http://127.0.0.1:6379/")
+
+    # Should block non-HTTP schemes
+    with pytest.raises(SSRFError):
+        validate_url("file:///etc/passwd")
+
+    with pytest.raises(SSRFError):
+        validate_url("ftp://internal.server/data")
+
+
+def test_upload_sessions(tmp_data_dir):
+    """Test session token generation, validation, and expiration."""
+    from rag_mcp.upload.sessions import SessionManager
+
+    mgr = SessionManager()
+    sess = mgr.create_session(namespace="test-ns", expiry_minutes=5)
+
+    assert sess["session_id"]
+    assert sess["token"]
+    assert sess["namespace"] == "test-ns"
+
+    # Validation should succeed
+    assert mgr.validate_session(sess["session_id"], sess["token"]) is True
+
+    # Bad token should fail
+    assert mgr.validate_session(sess["session_id"], "invalid-token") is False
+
+    # Non-existent session should fail
+    assert mgr.validate_session("unknown-id", sess["token"]) is False
+
+
+def test_upload_api_endpoints(tmp_data_dir):
+    """Test FastAPI upload and status endpoints."""
+    from fastapi.testclient import TestClient
+    from fastapi import FastAPI
+    from rag_mcp.upload.router import router as upload_router, set_engine
+    from rag_mcp.upload.sessions import SessionManager
+    from rag_mcp.engine.rag_engine import RAGEngine
+
+    engine = RAGEngine()
+    set_engine(engine)
+
+    app = FastAPI()
+    app.include_router(upload_router)
+    client = TestClient(app)
+
+    mgr = SessionManager()
+    sess = mgr.create_session(namespace="api-test", expiry_minutes=10)
+
+    # 1. Test status route (valid)
+    resp = client.get(f"/upload/{sess['session_id']}/status?token={sess['token']}")
+    assert resp.status_code == 200
+    assert resp.json()["namespace"] == "api-test"
+    assert resp.json()["status"] == "pending"
+
+    # 2. Test status route (invalid token)
+    resp = client.get(f"/upload/{sess['session_id']}/status?token=wrong")
+    assert resp.status_code == 400
+
+    # 3. Test serving HTML UI (valid)
+    resp = client.get(f"/upload/{sess['session_id']}?token={sess['token']}")
+    assert resp.status_code == 200
+    assert "Secure Document Ingestion" in resp.text
+
+    # 4. Test serving HTML UI (invalid token)
+    resp = client.get(f"/upload/{sess['session_id']}?token=wrong")
+    assert resp.status_code == 400
+    assert "Session Invalid or Expired" in resp.text
+
+    # 5. Test file upload processing
+    # Create a dummy text file to upload
+    with tempfile.NamedTemporaryFile(suffix=".txt", mode="w", delete=False) as f:
+        f.write("FastAPI upload indexing is working nicely in integration tests.")
+        dummy_path = f.name
+
+    try:
+        with open(dummy_path, "rb") as f:
+            resp = client.post(
+                f"/upload/{sess['session_id']}?token={sess['token']}",
+                files={"files": (os.path.basename(dummy_path), f, "text/plain")},
+                data={"tags": "test-api, integration"},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["successful_count"] == 1
+        assert data["results"][0]["status"] == "indexed"
+
+        # Check in engine that document was actually indexed
+        results = engine.search("FastAPI upload indexing", namespace="api-test")
+        assert len(results) > 0
+        assert "FastAPI upload" in results[0].text
+    finally:
+        os.remove(dummy_path)
+
+
+def test_transport_routing(tmp_data_dir):
+    """Test that streamable-http and sse transport apps can be mounted in FastAPI."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from rag_mcp.mcp.server import create_mcp_server
+    from rag_mcp.engine.rag_engine import RAGEngine
+
+    engine = RAGEngine()
+    mcp = create_mcp_server(engine)
+
+    # Test "sse" transport
+    app_sse = FastAPI()
+    sse_mcp_app = mcp.http_app(transport="sse")
+    app_sse.mount("/mcp", sse_mcp_app)
+
+    client_sse = TestClient(app_sse)
+    resp = client_sse.get("/mcp/sse")
+    assert resp.status_code != 404
+
+    # Test "streamable-http" transport
+    app_http = FastAPI()
+    http_mcp_app = mcp.http_app(transport="streamable-http")
+    app_http.mount("/mcp", http_mcp_app)
+
+    client_http = TestClient(app_http)
+    resp = client_http.get("/mcp/mcp")
+    assert resp.status_code != 404
+
+

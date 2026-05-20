@@ -1,0 +1,15 @@
+services:
+  rag-mcp:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - rag-data:/data
+    environment:
+      - RAG_MCP_CHROMA_PATH=/data/chroma
+      - RAG_MCP_METADATA_DB_PATH=/data/metadata.db
+      - RAG_MCP_LOG_LEVEL=INFO
+      - RAG_MCP_EMBEDDING_MODEL=all-MiniLM-L6-v2
+
+volumes:
+  rag-data:

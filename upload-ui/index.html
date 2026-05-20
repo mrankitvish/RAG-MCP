@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Document Ingestion - RAG-MCP</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/upload/static/style.css">
+</head>
+<body>
+    <div class="glass-bg"></div>
+    <div class="glow glow-1"></div>
+    <div class="glow glow-2"></div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo">
+                <span class="logo-icon">⚡</span>
+                <span class="logo-text">RAG<span class="highlight">-MCP</span></span>
+            </div>
+            <div class="badge secure-badge">
+                <span class="badge-icon">🔒</span> Secure Upload Link
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="workspace">
+            <div class="card main-card">
+                <div class="card-header">
+                    <h1>Ingest Your Documents</h1>
+                    <p class="subtitle">Securely parse, chunk, and embed your assets into namespace: <span id="namespace-badge" class="badge-ns">loading...</span></p>
+                </div>
+
+                <!-- Drag & Drop Dropzone -->
+                <div id="dropzone" class="dropzone">
+                    <input type="file" id="file-input" multiple accept=".pdf,.docx,.doc,.txt,.md,.markdown" class="hidden-input">
+                    <div class="dropzone-content">
+                        <div class="dropzone-icon-container">
+                            <span class="dropzone-icon">📥</span>
+                        </div>
+                        <h3>Drag & drop files here</h3>
+                        <p class="dropzone-hint">Supports PDF, DOCX, TXT, and Markdown (Max 50MB per file)</p>
+                        <button type="button" class="btn btn-secondary" id="browse-btn">Or browse files</button>
+                    </div>
+                </div>
+
+                <!-- File Queue List -->
+                <div id="file-queue-container" class="file-queue-container hidden">
+                    <h4 class="section-title">Files ready for ingestion (<span id="queue-count">0</span>)</h4>
+                    <div id="file-queue" class="file-queue"></div>
+                </div>
+
+                <!-- Ingestion Options -->
+                <div class="options-grid">
+                    <div class="input-group">
+                        <label for="tags-input">Metadata Tags <span class="label-hint">(comma separated)</span></label>
+                        <input type="text" id="tags-input" placeholder="e.g., project-x, documentation, v2">
+                    </div>
+                </div>
+
+                <!-- Action Button -->
+                <div class="action-container">
+                    <button class="btn btn-primary btn-large" id="upload-btn" disabled>
+                        <span class="btn-text">Start Ingestion Pipeline</span>
+                        <span class="spinner hidden"></span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Side Ingestion Status Panel -->
+            <div class="card status-card">
+                <h2>Ingestion Analytics</h2>
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <span class="stat-val" id="stat-total">0</span>
+                        <span class="stat-label">Total Files</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-val" id="stat-success">0</span>
+                        <span class="stat-label">Successfully Indexed</span>
+                    </div>
+                </div>
+
+                <div class="status-feed-container">
+                    <h3>Activity Feed</h3>
+                    <div id="status-feed" class="status-feed">
+                        <div class="feed-empty">No ingestion activity in this session yet.</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer class="app-footer">
+            <p>RAG-MCP Universal Knowledge Layer • Secured using ephemeral tokens</p>
+        </footer>
+    </div>
+
+    <!-- Embedded Session Context -->
+    <script>
+        window.SESSION_CONTEXT = {
+            sessionId: "{{SESSION_ID}}",
+            token: "{{TOKEN}}"
+        };
+    </script>
+    <script src="/upload/static/app.js"></script>
+</body>
+</html>
