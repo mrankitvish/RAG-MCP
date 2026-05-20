@@ -1,51 +1,19 @@
-# RAG-MCP
+# RAG-MCP Docs
 
-## Universal Knowledge Ingestion & Retrieval Layer for MCP Clients
+## Available Documents
 
-> **`docker run rag-mcp`** — give any AI client persistent memory, document retrieval, and semantic search.
+1. [System Architecture](docs/guide/system-architecture.md)
+2. [Quick Setup](docs/guide/quick-setup.md)
+3. [How-To Guide](docs/guide/how-to-guide.md)
 
----
+## Source of Truth
 
-### Quickstart
+Implementation references in this documentation are aligned to:
 
-```bash
-# Install
-pip install -e .
-
-# Run
-rag-mcp
-```
-
-### Claude Desktop Configuration
-
-```json
-{
-  "mcpServers": {
-    "rag-mcp": {
-      "command": "rag-mcp"
-    }
-  }
-}
-```
-
-### Available Tools
-
-| Tool | Description |
-|------|-------------|
-| `ingest_text` | Store text content for later retrieval |
-| `ingest_url` | Fetch and index a webpage |
-| `ingest_youtube` | Extract and index a YouTube transcript |
-| `ingest_file` | Index a local file (PDF, DOCX, TXT, MD) |
-| `retrieve` | Semantic search across knowledge |
-| `retrieve_with_sources` | Search with full citations |
-| `list_documents` | List indexed documents |
-| `delete_document` | Remove a document |
-| `search_documents` | Search by metadata |
-| `get_ingestion_status` | Check processing status |
-
-### Development
-
-```bash
-pip install -e ".[dev]"
-pytest
-```
+- [`src/rag_mcp/main.py`](src/rag_mcp/main.py)
+- [`src/rag_mcp/config.py`](src/rag_mcp/config.py)
+- [`src/rag_mcp/mcp/tools/`](src/rag_mcp/mcp/tools)
+- [`src/rag_mcp/upload/router.py`](src/rag_mcp/upload/router.py)
+- [`src/rag_mcp/upload/sessions.py`](src/rag_mcp/upload/sessions.py)
+- [`Dockerfile`](Dockerfile)
+- [`docker-compose.yml`](docker-compose.yml)

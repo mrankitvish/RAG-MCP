@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     # --- Observability ---
     metrics_enabled: bool = True
     metrics_path: str = "/metrics"
-    metrics_require_auth: bool = True
+    metrics_require_auth: bool = False
     metrics_bearer_token: str = ""
     metrics_allowed_cidrs: list[str] = [
         "127.0.0.1/32",
