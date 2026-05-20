@@ -11,7 +11,14 @@ from rag_mcp.log import get_logger
 
 logger = get_logger(__name__)
 
-_SECRET = b"rag-mcp-session-secret-salt-12345"
+
+def _load_secret() -> bytes:
+    raw = settings.upload_session_secret.strip()
+    if not raw:
+        raise RuntimeError("RAG_MCP_UPLOAD_SESSION_SECRET must be configured")
+    if raw == "dev-insecure-change-me":
+        logger.warning("Using default development upload session secret; configure RAG_MCP_UPLOAD_SESSION_SECRET")
+    return raw.encode("utf-8")
 
 
 class SessionManager:
@@ -43,7 +50,7 @@ class SessionManager:
     def generate_token(self, session_id: str, expires_at: str) -> str:
         """Generate a secure signature/token for a session ID."""
         msg = f"{session_id}:{expires_at}".encode()
-        return hmac.new(_SECRET, msg, hashlib.sha256).hexdigest()
+        return hmac.new(_load_secret(), msg, hashlib.sha256).hexdigest()
 
     def create_session(self, namespace: str = "default", expiry_minutes: int = 15) -> dict:
         """Create a new temporary upload session.

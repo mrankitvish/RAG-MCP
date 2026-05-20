@@ -158,15 +158,47 @@ async def handle_file_upload(
     temp_upload_dir = Path("./data/uploads") / session_id
     temp_upload_dir.mkdir(parents=True, exist_ok=True)
 
+    if len(files) > settings.upload_max_files_per_request:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Too many files. Maximum allowed is {settings.upload_max_files_per_request} per request.",
+        )
+
     results = []
     success_count = 0
+    total_written_bytes = 0
+    max_file_bytes = settings.upload_max_size_mb * 1024 * 1024
+    max_total_bytes = settings.upload_max_total_size_mb * 1024 * 1024
 
     for file in files:
         file_path = temp_upload_dir / file.filename
         try:
             # Stream write to file to keep memory footprint extremely small
             with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
+                file_written = 0
+                while True:
+                    chunk = file.file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    chunk_len = len(chunk)
+                    file_written += chunk_len
+                    total_written_bytes += chunk_len
+
+                    if file_written > max_file_bytes:
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"File '{file.filename}' exceeds max file size limit of {settings.upload_max_size_mb}MB.",
+                        )
+                    if total_written_bytes > max_total_bytes:
+                        raise HTTPException(
+                            status_code=413,
+                            detail=(
+                                f"Combined upload exceeds max total size limit of "
+                                f"{settings.upload_max_total_size_mb}MB."
+                            ),
+                        )
+
+                    buffer.write(chunk)
 
             # Ingest
             ingest_res = ingest_from_file(
@@ -191,6 +223,8 @@ async def handle_file_upload(
                     "chunks": ingest_res.get("chunk_count")
                 })
 
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error("Failed to process uploaded file", filename=file.filename, error=str(e))
             results.append({

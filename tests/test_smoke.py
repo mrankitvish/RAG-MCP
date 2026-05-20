@@ -217,27 +217,151 @@ def test_metrics_endpoint(tmp_data_dir):
 
     from rag_mcp.config import settings
     from rag_mcp.log import get_logger
-    from rag_mcp.main import register_metrics_endpoint
+    from rag_mcp.main import register_http_metrics_middleware, register_metrics_endpoint
 
     app = FastAPI()
     logger = get_logger("test_metrics")
 
+    @app.get("/health")
+    async def health():
+        return {"ok": True}
+
     original_enabled = settings.metrics_enabled
     original_path = settings.metrics_path
+    original_require_auth = settings.metrics_require_auth
+    original_bearer = settings.metrics_bearer_token
+    original_allowed_cidrs = list(settings.metrics_allowed_cidrs)
+    original_metrics_rps = settings.metrics_rate_limit_rps
+    original_metrics_burst = settings.metrics_rate_limit_burst
     try:
         settings.metrics_enabled = True
         settings.metrics_path = "/metrics"
+        settings.metrics_require_auth = False
+        settings.metrics_bearer_token = ""
+        settings.metrics_allowed_cidrs = ["127.0.0.1/32", "::1/128"]
+        settings.metrics_rate_limit_rps = 1000.0
+        settings.metrics_rate_limit_burst = 1000
 
+        register_http_metrics_middleware(app, logger)
         register_metrics_endpoint(app, logger)
         client = TestClient(app)
+
+        # Generate some traffic so custom app metrics are populated.
+        health_resp = client.get("/health")
+        assert health_resp.status_code == 200
+
         resp = client.get("/metrics")
 
         assert resp.status_code == 200
         assert "text/plain" in resp.headers.get("content-type", "")
         assert "Cache-Control" in resp.headers
         assert "# HELP" in resp.text or "# TYPE" in resp.text
+        assert "rag_mcp_http_requests_total" in resp.text
+        assert "rag_mcp_http_request_duration_seconds" in resp.text
+        assert "rag_mcp_http_requests_in_flight" in resp.text
+        assert "rag_mcp_http_exceptions_total" in resp.text
     finally:
         settings.metrics_enabled = original_enabled
         settings.metrics_path = original_path
+        settings.metrics_require_auth = original_require_auth
+        settings.metrics_bearer_token = original_bearer
+        settings.metrics_allowed_cidrs = original_allowed_cidrs
+        settings.metrics_rate_limit_rps = original_metrics_rps
+        settings.metrics_rate_limit_burst = original_metrics_burst
 
 
+def test_metrics_auth_and_cidr_enforced(tmp_data_dir):
+    """Metrics endpoint should enforce bearer token and CIDR allowlist."""
+    pytest.importorskip("prometheus_client")
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from rag_mcp.config import settings
+    from rag_mcp.log import get_logger
+    from rag_mcp.main import register_http_metrics_middleware, register_metrics_endpoint
+
+    app = FastAPI()
+    logger = get_logger("test_metrics_auth")
+
+    original_enabled = settings.metrics_enabled
+    original_path = settings.metrics_path
+    original_require_auth = settings.metrics_require_auth
+    original_bearer = settings.metrics_bearer_token
+    original_allowed_cidrs = list(settings.metrics_allowed_cidrs)
+    original_metrics_rps = settings.metrics_rate_limit_rps
+    original_metrics_burst = settings.metrics_rate_limit_burst
+
+    try:
+        settings.metrics_enabled = True
+        settings.metrics_path = "/metrics"
+        settings.metrics_require_auth = True
+        settings.metrics_bearer_token = "test-secret-token"
+        settings.metrics_allowed_cidrs = ["127.0.0.1/32", "::1/128"]
+        settings.metrics_rate_limit_rps = 1000.0
+        settings.metrics_rate_limit_burst = 1000
+
+        register_http_metrics_middleware(app, logger)
+        register_metrics_endpoint(app, logger)
+        client = TestClient(app)
+
+        unauth = client.get("/metrics")
+        assert unauth.status_code == 401
+
+        bad_token = client.get("/metrics", headers={"Authorization": "Bearer wrong"})
+        assert bad_token.status_code == 401
+
+        ok = client.get("/metrics", headers={"Authorization": "Bearer test-secret-token"})
+        assert ok.status_code == 200
+
+        # Re-register on a new app with a disallowing CIDR policy to verify 403 branch.
+        settings.metrics_allowed_cidrs = ["10.0.0.0/8"]
+        app_blocked = FastAPI()
+        register_metrics_endpoint(app_blocked, logger)
+        blocked_client = TestClient(app_blocked)
+        blocked = blocked_client.get("/metrics", headers={"Authorization": "Bearer test-secret-token"})
+        assert blocked.status_code == 403
+    finally:
+        settings.metrics_enabled = original_enabled
+        settings.metrics_path = original_path
+        settings.metrics_require_auth = original_require_auth
+        settings.metrics_bearer_token = original_bearer
+        settings.metrics_allowed_cidrs = original_allowed_cidrs
+        settings.metrics_rate_limit_rps = original_metrics_rps
+        settings.metrics_rate_limit_burst = original_metrics_burst
+
+
+def test_upload_too_many_files_limit(tmp_data_dir):
+    """Upload endpoint should reject requests exceeding file count limit."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from rag_mcp.config import settings
+    from rag_mcp.engine.rag_engine import RAGEngine
+    from rag_mcp.upload.router import router as upload_router, set_engine
+    from rag_mcp.upload.sessions import SessionManager
+
+    app = FastAPI()
+    app.include_router(upload_router)
+    engine = RAGEngine()
+    set_engine(engine)
+    client = TestClient(app)
+
+    mgr = SessionManager()
+    sess = mgr.create_session(namespace="limit-test", expiry_minutes=10)
+
+    original_max_files = settings.upload_max_files_per_request
+    try:
+        settings.upload_max_files_per_request = 1
+        files = [
+            ("files", ("a.txt", b"hello", "text/plain")),
+            ("files", ("b.txt", b"world", "text/plain")),
+        ]
+        resp = client.post(
+            f"/upload/{sess['session_id']}?token={sess['token']}",
+            files=files,
+            data={"tags": "limit"},
+        )
+        assert resp.status_code == 413
+    finally:
+        settings.upload_max_files_per_request = original_max_files
